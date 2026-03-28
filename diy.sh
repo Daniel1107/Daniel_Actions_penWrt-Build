@@ -83,4 +83,14 @@ do
     find feeds/ -maxdepth 4 -type d -name "$x" -exec rm -rf {} \;
 done
 
+# ==================== 极度危险组件物理删除 ====================
+echo "正在物理删除无用且易冲突的 MMDVM 源码..."
+# 物理删除 MMDVM 插件源码
+rm -rf feeds/*/luci-app-mmdvm
+rm -rf package/*/luci-app-mmdvm
+# 物理删除 MMDVM 主题源码
+rm -rf feeds/*/luci-theme-mmdvm
+rm -rf package/*/luci-theme-mmdvm
+
 echo "自定义插件脚本执行完毕！系统已达到最纯净状态！"
+
