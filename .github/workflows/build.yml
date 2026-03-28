@@ -1,6 +1,6 @@
 name: Build OpenWrt (Ultimate Edition)
 
-于:
+on:
   workflow_dispatch: 
 
 env:
@@ -52,7 +52,7 @@ jobs:
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
       # ================== 研判一修正：绝对安全的纯净缓存 ==================
-      - name: Cache Downloaded Files (只缓存下载包，防范内核冲突)
+      - name: Cache Downloaded Files
         uses: actions/cache@v4
         with:
           path: openwrt/dl
@@ -62,26 +62,22 @@ jobs:
       # ===================================================================
 
       # ================== 核心修正：智能清道夫顺序 ==================
-      # 1. 注入你的第三方包源
       - name: Update feeds.conf
         run: |
           cd openwrt
           echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
 
-      # 2. 先去把所有的系统包和第三方包全部下载到 feeds 目录里
       - name: Update feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
 
-      # 3. 再运行你的 diy.sh！把你自己精挑细选的包拉下来，并清空 feeds 里重名的垃圾！
       - name: Run diy.sh
         run: |
           chmod +x custom_config/diy.sh
           cd openwrt
           /bin/bash ../custom_config/diy.sh
 
-      # 4. 最后把这套干干净净、绝无冲突的代码安装进编译环境
       - name: Install feeds
         run: |
           cd openwrt
@@ -94,11 +90,14 @@ jobs:
           [ -e ../custom_config/.config ] && mv ../custom_config/.config .config
           [ -d ../custom_config/files ] && mv ../custom_config/files files
           [ -d files ] && chmod -R 755 files || true
+          
+          # 【强力补丁】清除缓存，重新生成一份干净的依赖菜单
           rm -rf tmp/
+          
           make defconfig
 
       # ================== 研判二修正：网络防爆破机制 ==================
-      - name: Download package (加入多重重试与降级机制)
+      - name: Download package
         run: |
           cd openwrt
           echo "开始下载依赖包..."
@@ -123,7 +122,6 @@ jobs:
       - name: Upload firmware directory
         uses: actions/upload-artifact@v4
         with:
-          # 加上了时间戳，以后下载的固件包一眼就能看出是哪天几点编译的
           name: OpenWrt_x86_${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
           retention-days: 7
