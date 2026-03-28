@@ -54,7 +54,7 @@ jobs:
           
           echo ">>> 2. 卸载极臃肿且用不到的大型软件包..."
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq -y purge azure-cli* ghc* zulu* hhvm* llvm* firefox* google* dotnet* powershell* openjdk* mysql* php* mongodb* snapd microsoft-edge-stable
+          sudo -E apt-get -qq -y purge azure-cli* ghc* zulu* hhvm* llvm* firefox* google* dotnet* powershell* openjdk* mysql* php* mongodb* snapd microsoft-edge-stable || true
           
           echo ">>> 3. 清理废弃依赖并彻底清空 APT 缓存..."
           sudo -E apt-get -qq autoremove --purge
