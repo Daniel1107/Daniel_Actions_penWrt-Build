@@ -19,11 +19,23 @@ jobs:
         with:
           path: custom_config # 第一步：把你当前仓库里的个人配置（.config, diy.sh, files等）拉取下来，专门放进一个叫 custom_config 的独立文件夹备用
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # 第二步：【终极空间清理大招】清理服务器自带的冗余环境，强行腾出约 30GB 空间，彻底告别 No space left 报错！
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Init build environment
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          # 第二步：初始化服务器环境，安装各种编译 OpenWrt 必需的底层依赖包（比如 gcc, git, python 等）
+          # 第三步：初始化服务器环境，安装各种编译 OpenWrt 必需的底层依赖包（比如 gcc, git, python 等）
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
@@ -33,18 +45,18 @@ jobs:
 
       - name: Clone OpenWrt Source
         run: |
-          # 第三步：去 L 大的仓库里，实时拉取他最新鲜的底层系统源码，放到 openwrt 文件夹里
+          # 第四步：去 L 大的仓库里，实时拉取他最新鲜的底层系统源码，放到 openwrt 文件夹里
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
       - name: Update feeds.conf (注入第三方源)
         run: |
           cd openwrt
-          # 第四步：把 kenzok8 等第三方的插件包源，追加到系统的下载列表 (feeds.conf.default) 中
+          # 第五步：把 kenzok8 等第三方的插件包源，追加到系统的下载列表 (feeds.conf.default) 中
           echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
 
       - name: Run diy.sh (注入自定义插件)
         run: |
-          # 第五步：给你的专属插件拉取脚本赋予运行权限，并执行它。它会去把你想要的各种插件全拉下来放到源码里
+          # 第六步：给你的专属插件拉取脚本赋予运行权限，并执行它。它会去把你想要的各种插件全拉下来放到源码里
           chmod +x custom_config/diy.sh
           cd openwrt
           /bin/bash ../custom_config/diy.sh
@@ -52,14 +64,14 @@ jobs:
       - name: Update & Install feeds
         run: |
           cd openwrt
-          # 第六步：根据前面配置好的源列表，正式下载并安装所有的插件包索引，让编译菜单能识别到它们
+          # 第七步：根据前面配置好的源列表，正式下载并安装所有的插件包索引，让编译菜单能识别到它们
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Load Custom Configuration (合并配置与Files)
         run: |
           cd openwrt
-          # 第七步：灵魂注入！把你的个人配置和底层源码合并
+          # 第八步：灵魂注入！把你的个人配置和底层源码合并
           # 1. 覆盖你的专属编译菜单配置 (.config)
           [ -e ../custom_config/.config ] && mv ../custom_config/.config .config
           
@@ -67,7 +79,6 @@ jobs:
           [ -d ../custom_config/files ] && mv ../custom_config/files files
           
           # 3. 【极度重要：权限修复防坑补丁】强制赋予 files 目录下所有脚本可执行权限！
-          # 这是为了防止在 Windows 环境下创建/上传文件时丢失 Linux 的执行权限，确保你的 99-custom-init 脚本能顺利运行
           [ -d files ] && chmod -R 755 files || true
           
           # 4. 执行 make defconfig 自动补全 .config 中缺失的底层依赖项
@@ -76,7 +87,7 @@ jobs:
       - name: Download package
         run: |
           cd openwrt
-          # 第八步：正式编译前，先把所有需要的代码包下载到本地 dl 文件夹缓存起来，防止编译中途断网卡死
+          # 第九步：正式编译前，先把所有需要的代码包下载到本地 dl 文件夹缓存起来，防止编译中途断网卡死
           make download -j8
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
@@ -85,21 +96,21 @@ jobs:
         run: |
           cd openwrt
           echo -e "$(nproc) thread compile"
-          # 第九步：开始干苦力！调用服务器的所有核心线程狂飙编译。如果多线程出错，就自动降级为单线程输出详细日志 (V=s) 重新编译
+          # 第十步：开始干苦力！调用服务器的所有核心线程狂飙编译。如果多线程出错，就自动降级为单线程输出详细日志 (V=s) 重新编译
           make -j$(nproc) || make -j1 V=s
 
       - name: Organize files (整理输出结果)
         id: organize
         run: |
           cd openwrt/bin/targets/*/*
-          # 第十步：编译完成后，打扫战场，删掉不需要的杂碎文件，只保留精简的固件刷机包
+          # 第十一步：编译完成后，打扫战场，删掉不需要的杂碎文件，只保留精简的固件刷机包
           rm -rf packages
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
       - name: Upload firmware directory
         uses: actions/upload-artifact@v4
         with:
-          # 第十一步：打包装车！将最终的固件上传到当前运行记录的 Artifacts 区域供你下载。固件默认保留 7 天。
+          # 第十二步：打包装车！将最终的固件上传到当前运行记录的 Artifacts 区域供你下载。固件默认保留 7 天。
           name: OpenWrt_Firmware
           path: ${{ env.FIRMWARE }}
           retention-days: 7
