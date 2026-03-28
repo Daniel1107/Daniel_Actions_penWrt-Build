@@ -1,0 +1,14 @@
+#!/bin/sh
+
+uci set network.lan.ipaddr='10.10.10.22'
+uci commit network
+
+PASSWD=$(openssl passwd -1 "wyh")
+uci set system.@system[0].password="$PASSWD"
+uci commit system
+
+uci set network.wan.ifname='eth0'
+uci set network.lan.ifname='eth3'
+uci commit network
+
+exit 0
