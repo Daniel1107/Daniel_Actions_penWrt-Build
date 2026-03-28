@@ -1,14 +1,26 @@
 #!/bin/sh
 
+# ================= 1. 基础网络 IP 设置 =================
 uci set network.lan.ipaddr='10.10.10.22'
-uci commit network
 
-PASSWD=$(openssl passwd -1 "wyh")
-uci set system.@system[0].password="$PASSWD"
-uci commit system
-
+# ================= 2. 物理网口智能分配 =================
+# 将 eth0 划定为 WAN 口 (接光猫)
 uci set network.wan.ifname='eth0'
-uci set network.lan.ifname='eth3'
-uci commit network
+
+# 【极度重要】将剩余的 eth1, eth2, eth3 全部桥接为 LAN 口 (接电脑或无线路由器)
+# 这样你不管把电脑插在哪个口上，都能获取到 10.10.10.x 的 IP！
+uci set network.lan.ifname='eth1 eth2 eth3'
+
+# ================= 3. 底层 Root 密码强改 =================
+# 这才是修改 OpenWrt 登录密码、SSH 密码的唯一正确姿势！
+echo "root:wyh" | chpasswd
+
+# ================= 4. 强制默认高颜值主题 (福利彩蛋) =================
+# 既然你拉取了 Argon 主题，我们直接让路由器开机默认就使用它，免去手动去后台切换的麻烦
+uci set luci.main.mediaurlbase='/luci-static/argon'
+
+# ================= 5. 一次性提交所有更改 =================
+# 将上述所有 UCI 修改一次性写入底层存储
+uci commit
 
 exit 0
