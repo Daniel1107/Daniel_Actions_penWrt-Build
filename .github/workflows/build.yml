@@ -1,6 +1,6 @@
 name: Build OpenWrt (Ultimate Edition)
 
-on:
+于:
   workflow_dispatch: 
 
 env:
@@ -94,6 +94,7 @@ jobs:
           [ -e ../custom_config/.config ] && mv ../custom_config/.config .config
           [ -d ../custom_config/files ] && mv ../custom_config/files files
           [ -d files ] && chmod -R 755 files || true
+          rm -rf tmp/
           make defconfig
 
       # ================== 研判二修正：网络防爆破机制 ==================
