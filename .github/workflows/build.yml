@@ -1,9 +1,13 @@
 name: Build OpenWrt (Ultimate Edition)
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch: # 手动触发工作流
 
 env:
+  # ================== 优化一：消除 Node.js 20 警告 ==================
+  # 强制 GitHub Actions 使用 Node.js 24，彻底干掉那个烦人的全局警告日志！
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # ==================================================================
   REPO_URL: https://github.com/coolsnowwolf/lede 
   REPO_BRANCH: master                            
   TZ: Asia/Shanghai                              
@@ -22,10 +26,12 @@ jobs:
       - name: Generate Timestamp
         id: time
         run: |
+          # 校准时区，并生成当前时间戳，供最后固件打包命名使用
           sudo timedatectl set-timezone "$TZ"
           echo "FILE_DATE=$(date +"%Y%m%d_%H%M")" >> $GITHUB_ENV
       # ==============================================================
 
+      # 【最核心修复】释放运行器磁盘空间，防止编译中途因空间不足（No space left on device）导致退出代码 2 报错
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -37,18 +43,23 @@ jobs:
           docker-images: true
           swap-storage: true
 
+      # ================== 优化二：最全编译依赖库 ==================
       - name: Init build environment
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
+          # 卸载不必要的自带软件，进一步腾出几十GB的系统空间
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget ccache
+          # 安装编译 Lede 源码所需的所有依赖（已补充 libelf-dev, python3-setuptools 等防坑包，避免编译内核或 Python 时玄学报错）
+          sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
+      # ==============================================================
 
       - name: Clone OpenWrt Source
         run: |
+          # 仅克隆最新一次提交（depth 1），极大地加快源码下载速度并节省硬盘空间
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
       # ================== 研判一修正：绝对安全的纯净缓存 ==================
@@ -56,6 +67,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/dl
+          # 使用自定义 .config 文件的哈希值作为缓存 Key，一旦配置改变自动弃用旧缓存
           key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('custom_config/.config') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-dl-
@@ -65,56 +77,66 @@ jobs:
       - name: Update feeds.conf
         run: |
           cd openwrt
+          # 将额外的第三方插件包源（如 kenzok8/small）追加到 feeds 列表中
           echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
 
       - name: Update feeds
         run: |
           cd openwrt
+          # 更新所有软件源的包列表
           ./scripts/feeds update -a
 
       - name: Run diy.sh
         run: |
           chmod +x custom_config/diy.sh
           cd openwrt
+          # 执行自定义脚本（通常用于修改默认后台 IP、修改主题名或移除不需要的默认插件）
           /bin/bash ../custom_config/diy.sh
 
       - name: Install feeds
         run: |
           cd openwrt
+          # 将更新后的包安装到本地编译环境中，准备被 Make 读取
           ./scripts/feeds install -a
       # ==============================================================
 
       - name: Load Custom Configuration
         run: |
           cd openwrt
+          # 引入自定义的 .config 配置文件和自定义文件目录（files，用于预置配置文件到固件中）
           [ -e ../custom_config/.config ] && mv ../custom_config/.config .config
           [ -d ../custom_config/files ] && mv ../custom_config/files files
           [ -d files ] && chmod -R 755 files || true
           
-          # 【强力补丁】清除缓存，重新生成一份干净的依赖菜单
+          # 【强力补丁】清除临时缓存，重新生成一份干净的依赖菜单，防止依赖串位导致编译失败
           rm -rf tmp/
-          
           make defconfig
 
-      # ================== 研判二修正：网络防爆破机制 ==================
+      # ================== 优化三：网络防爆破机制（完美闭环） ==================
       - name: Download package
         run: |
           cd openwrt
-          echo "开始下载依赖包..."
-          make download -j8 || make download -j1 V=s || echo "部分包下载失败，但在编译阶段会强制重试！"
+          echo "开始第一轮全量下载依赖包..."
+          make download -j8
+          echo "检查并揪出下载不完整的坏包（小于1KB通常是死链或下载截断导致的假文件）..."
           find dl -size -1024c -exec ls -l {} \;
+          echo "无情删除这些坏包..."
           find dl -size -1024c -exec rm -f {} \;
+          echo "开始第二轮补漏下载，确保刚才被干掉的坏包能重新完整下载回来..."
+          make download -j8
       # ==============================================================
 
       - name: Compile the firmware
         run: |
           cd openwrt
           echo -e "$(nproc) thread compile"
+          # 先尝试满血多线程编译。如果遇到错误崩了，自动回退到单线程（-j1 V=s）以输出详尽的报错日志供排查
           make -j$(nproc) || make -j1 V=s
 
       - name: Organize files
         id: organize
         run: |
+          # 整理编译好的固件存放路径，删除无用的 packages 文件夹（不上传零碎的ipk文件），只保留固件本身
           cd openwrt/bin/targets/*/*
           rm -rf packages
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -122,6 +144,7 @@ jobs:
       - name: Upload firmware directory
         uses: actions/upload-artifact@v4
         with:
+          # 上传打包好的固件，命名带上最开始生成的时间戳
           name: OpenWrt_x86_${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
           retention-days: 7
