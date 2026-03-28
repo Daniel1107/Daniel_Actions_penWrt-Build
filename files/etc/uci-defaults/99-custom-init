@@ -9,6 +9,7 @@ uci set network.wan.ifname='eth0'
 
 # 【极度重要】将剩余的 eth1, eth2, eth3 全部桥接为 LAN 口 (接电脑或无线路由器)
 # 这样你不管把电脑插在哪个口上，都能获取到 10.10.10.x 的 IP！
+uci set network.lan.type='bridge'
 uci set network.lan.ifname='eth1 eth2 eth3'
 
 # ================= 3. 底层 Root 密码强改 =================
