@@ -1,28 +1,34 @@
-name: Build OpenWrt (Clean Architecture)
+name: Build OpenWrt (Ultimate Edition)
 
 on:
-  workflow_dispatch: # 触发条件：仅支持手动点击 "Run workflow" 触发，防止频繁意外编译浪费服务器资源
+  workflow_dispatch: 
 
 env:
-  # 基础环境变量设置
-  REPO_URL: https://github.com/coolsnowwolf/lede # L大源码仓库地址
-  REPO_BRANCH: master                            # 选定主分支
-  TZ: Asia/Shanghai                              # 设置时区为上海，保证编译时间戳正确
+  REPO_URL: https://github.com/coolsnowwolf/lede 
+  REPO_BRANCH: master                            
+  TZ: Asia/Shanghai                              
 
 jobs:
   build:
-    runs-on: ubuntu-22.04 # 借用微软 GitHub 提供的 Ubuntu 22.04 虚拟服务器来干活
+    runs-on: ubuntu-22.04 
 
     steps:
       - name: Checkout Custom Configs
         uses: actions/checkout@v4
         with:
-          path: custom_config # 第一步：把你当前仓库里的个人配置（.config, diy.sh, files等）拉取下来，专门放进一个叫 custom_config 的独立文件夹备用
+          path: custom_config 
+
+      # ================== 研判三修正：生成精确时间戳 ==================
+      - name: Generate Timestamp
+        id: time
+        run: |
+          sudo timedatectl set-timezone "$TZ"
+          echo "FILE_DATE=$(date +"%Y%m%d_%H%M")" >> $GITHUB_ENV
+      # ==============================================================
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
-          # 第二步：【终极空间清理大招】清理服务器自带的冗余环境，强行腾出约 30GB 空间，彻底告别 No space left 报错！
           tool-cache: false
           android: true
           dotnet: true
@@ -35,82 +41,88 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          # 第三步：初始化服务器环境，安装各种编译 OpenWrt 必需的底层依赖包（比如 gcc, git, python 等）
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
+          sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget ccache
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
-          sudo timedatectl set-timezone "$TZ"
 
       - name: Clone OpenWrt Source
         run: |
-          # 第四步：去 L 大的仓库里，实时拉取他最新鲜的底层系统源码，放到 openwrt 文件夹里
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-      - name: Update feeds.conf (注入第三方源)
+      # ================== 研判一修正：绝对安全的纯净缓存 ==================
+      - name: Cache Downloaded Files (只缓存下载包，防范内核冲突)
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('custom_config/.config') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-dl-
+      # ===================================================================
+
+      # ================== 核心修正：智能清道夫顺序 ==================
+      # 1. 注入你的第三方包源
+      - name: Update feeds.conf
         run: |
           cd openwrt
-          # 第五步：把 kenzok8 等第三方的插件包源，追加到系统的下载列表 (feeds.conf.default) 中
           echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
 
-      - name: Run diy.sh (注入自定义插件)
+      # 2. 先去把所有的系统包和第三方包全部下载到 feeds 目录里
+      - name: Update feeds
         run: |
-          # 第六步：给你的专属插件拉取脚本赋予运行权限，并执行它。它会去把你想要的各种插件全拉下来放到源码里
+          cd openwrt
+          ./scripts/feeds update -a
+
+      # 3. 再运行你的 diy.sh！把你自己精挑细选的包拉下来，并清空 feeds 里重名的垃圾！
+      - name: Run diy.sh
+        run: |
           chmod +x custom_config/diy.sh
           cd openwrt
           /bin/bash ../custom_config/diy.sh
 
-      - name: Update & Install feeds
+      # 4. 最后把这套干干净净、绝无冲突的代码安装进编译环境
+      - name: Install feeds
         run: |
           cd openwrt
-          # 第七步：根据前面配置好的源列表，正式下载并安装所有的插件包索引，让编译菜单能识别到它们
-          ./scripts/feeds update -a
           ./scripts/feeds install -a
+      # ==============================================================
 
-      - name: Load Custom Configuration (合并配置与Files)
+      - name: Load Custom Configuration
         run: |
           cd openwrt
-          # 第八步：灵魂注入！把你的个人配置和底层源码合并
-          # 1. 覆盖你的专属编译菜单配置 (.config)
           [ -e ../custom_config/.config ] && mv ../custom_config/.config .config
-          
-          # 2. 将你的自定义开机脚本文件夹 (files) 移入源码目录
           [ -d ../custom_config/files ] && mv ../custom_config/files files
-          
-          # 3. 【极度重要：权限修复防坑补丁】强制赋予 files 目录下所有脚本可执行权限！
           [ -d files ] && chmod -R 755 files || true
-          
-          # 4. 执行 make defconfig 自动补全 .config 中缺失的底层依赖项
           make defconfig
 
-      - name: Download package
+      # ================== 研判二修正：网络防爆破机制 ==================
+      - name: Download package (加入多重重试与降级机制)
         run: |
           cd openwrt
-          # 第九步：正式编译前，先把所有需要的代码包下载到本地 dl 文件夹缓存起来，防止编译中途断网卡死
-          make download -j8
+          echo "开始下载依赖包..."
+          make download -j8 || make download -j1 V=s || echo "部分包下载失败，但在编译阶段会强制重试！"
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
+      # ==============================================================
 
       - name: Compile the firmware
         run: |
           cd openwrt
           echo -e "$(nproc) thread compile"
-          # 第十步：开始干苦力！调用服务器的所有核心线程狂飙编译。如果多线程出错，就自动降级为单线程输出详细日志 (V=s) 重新编译
           make -j$(nproc) || make -j1 V=s
 
-      - name: Organize files (整理输出结果)
+      - name: Organize files
         id: organize
         run: |
           cd openwrt/bin/targets/*/*
-          # 第十一步：编译完成后，打扫战场，删掉不需要的杂碎文件，只保留精简的固件刷机包
           rm -rf packages
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
       - name: Upload firmware directory
         uses: actions/upload-artifact@v4
         with:
-          # 第十二步：打包装车！将最终的固件上传到当前运行记录的 Artifacts 区域供你下载。固件默认保留 7 天。
-          name: OpenWrt_Firmware
+          # 加上了时间戳，以后下载的固件包一眼就能看出是哪天几点编译的
+          name: OpenWrt_x86_${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
           retention-days: 7
