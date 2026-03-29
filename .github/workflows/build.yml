@@ -88,7 +88,8 @@ jobs:
         run: |
           cd openwrt
           # 将额外的第三方插件包源（如 kenzok8/small）追加到 feeds 列表中
-          echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
+          # 【纯净编译测试】：暂时注释掉第三方源，防止污染官方基础依赖库
+          # echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
 
       - name: Update feeds
         run: |
