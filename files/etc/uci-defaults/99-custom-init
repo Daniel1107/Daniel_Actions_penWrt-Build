@@ -14,7 +14,7 @@ uci set network.lan.ifname='eth1 eth2 eth3'
 
 # ================= 3. 底层 Root 密码强改 =================
 # 这才是修改 OpenWrt 登录密码、SSH 密码的唯一正确姿势！
-echo "root:wyh" | chpasswd
+echo "root:password" | chpasswd
 
 # ================= 4. 强制默认高颜值主题 (福利彩蛋) =================
 # 既然你拉取了 Argon 主题，我们直接让路由器开机默认就使用它，免去手动去后台切换的麻烦
